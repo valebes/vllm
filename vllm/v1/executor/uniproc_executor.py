@@ -4,7 +4,6 @@ import os
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import cached_property
-from multiprocessing import Lock
 from typing import Any
 
 import torch
@@ -33,7 +32,7 @@ class UniProcExecutor(Executor):
             rank=rank,
             distributed_init_method=distributed_init_method,
             is_driver_worker=True,
-            shared_worker_lock=Lock(),
+            shared_worker_lock=None,
         )
 
         self.async_output_thread: ThreadPoolExecutor | None = None
