@@ -261,6 +261,53 @@ if ((AVX512_FOUND AND NOT AVX512_DISABLED) OR (ASIMD_FOUND AND NOT APPLE_SILICON
         )
     endif()
 
+    
+	# ==============================================================================
+	# PATCH: xbyak_aarch64 for AWS Lambda Graviton2 Environment
+	# ==============================================================================
+	# This patch addresses missing /sys/devices/system/cpu/cpu0/regs/identification/midr_el1
+	# on AWS Lambda and other restricted ARM environments by hardcoding the MIDR_EL1
+	# value for ARM Neoverse N1 (Graviton2).
+	#
+	# Applies to:
+	#   - oneDNN's bundled xbyak_aarch64
+	#   - PyTorch's ideep/mkl-dnn xbyak_aarch64
+	#
+	# Context: AWS Lambda Graviton2 does not expose sysfs CPU identification files.
+	# Without this patch, xbyak fails to detect CPU features, causing build/runtime errors.
+	# ==============================================================================
+	if(ASIMD_FOUND AND NOT APPLE_SILICON_FOUND)
+        message(STATUS "Applying xbyak_aarch64 Graviton2 patch for Lambda/restricted environments")
+
+        set(XBYAK_FILES
+            "${FETCHCONTENT_BASE_DIR}/onednn-src/third_party/xbyak_aarch64/src/util_impl_linux.h"
+            "/pytorch/third_party/ideep/mkl-dnn/src/cpu/aarch64/xbyak_aarch64/src/util_impl_linux.h"
+        )
+
+        foreach(XBYAK_UTIL_FILE ${XBYAK_FILES})
+            if(EXISTS "${XBYAK_UTIL_FILE}")
+                message(STATUS "  → Patching: ${XBYAK_UTIL_FILE}")
+                file(READ "${XBYAK_UTIL_FILE}" XBYAK_CONTENT)
+                string(REPLACE
+                    "fprintf(stderr, \"%s, %d: Can't open MIDR_EL1 sysfs entry\\n\", __FILE__, __LINE__);"
+                    "fprintf(stderr, \"AWS Lambda/restricted environment detected, using Graviton2 (ARM Neoverse N1) CPU config\\n\");"
+                    XBYAK_CONTENT "${XBYAK_CONTENT}"
+                )
+                string(REPLACE
+                    "cacheInfo_.midr_el1 = 0xFF << 24;"
+                    "cacheInfo_.midr_el1 = 0x410FD0C1; // ARM Neoverse N1 (AWS Graviton2)"
+                    XBYAK_CONTENT "${XBYAK_CONTENT}"
+                )
+                file(WRITE "${XBYAK_UTIL_FILE}" "${XBYAK_CONTENT}")
+                message(STATUS "  ✓ Successfully patched xbyak (MIDR: 0x410FD0C1)")
+            else()
+                message(STATUS "  ℹ File not found (optional): ${XBYAK_UTIL_FILE}")
+            endif()
+        endforeach()
+
+        message(STATUS "xbyak_aarch64 Graviton2 patch complete")
+    endif()
+
     set(ONEDNN_LIBRARY_TYPE "STATIC")
     set(ONEDNN_BUILD_DOC "OFF")
     set(ONEDNN_BUILD_EXAMPLES "OFF")
